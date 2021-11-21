@@ -10,6 +10,7 @@ from detectron2.data import MetadataCatalog
 from detectron2.engine.defaults import DefaultPredictor
 from detectron2.utils.video_visualizer import VideoVisualizer
 from detectron2.utils.visualizer import ColorMode, Visualizer
+from bbox_json_utils import BBoxBuilder
 
 
 class VisualizationDemo(object):
@@ -33,6 +34,10 @@ class VisualizationDemo(object):
             self.predictor = AsyncPredictor(cfg, num_gpus=num_gpu)
         else:
             self.predictor = DefaultPredictor(cfg)
+
+        self._frame_id = None
+        self._classes = self.metadata.get("thing_classes", None)
+        self._json_builder = BBoxBuilder()
 
     def run_on_image(self, image):
         """
@@ -66,8 +71,13 @@ class VisualizationDemo(object):
         return predictions, vis_output
 
     def _frame_from_video(self, video):
+        if self._frame_id is None:
+            self._frame_id = -1
         while video.isOpened():
             success, frame = video.read()
+            self._frame_id += 1
+            # if self._frame_id > 5:
+            #     break
             if success:
                 yield frame
             else:
@@ -95,7 +105,22 @@ class VisualizationDemo(object):
                 )
             elif "instances" in predictions:
                 predictions = predictions["instances"].to(self.cpu_device)
-                vis_frame = video_visualizer.draw_instance_predictions(frame, predictions)
+                vis_frame = video_visualizer.draw_instance_predictions(
+                    frame, predictions
+                )
+                # print("-------")
+                # print(predictions.pred_boxes)
+                # print(predictions.pred_classes)
+                pred_classes = [self._classes[i] for i in predictions.pred_classes]
+                # print(pred_classes)
+                # print(predictions.scores)
+                self._json_builder.add_frame_prediction(
+                    self._frame_id,
+                    pred_classes,
+                    predictions.scores,
+                    predictions.pred_boxes,
+                    frame.shape,
+                )
             elif "sem_seg" in predictions:
                 vis_frame = video_visualizer.draw_sem_seg(
                     frame, predictions["sem_seg"].argmax(dim=0).to(self.cpu_device)
